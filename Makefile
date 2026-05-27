@@ -34,6 +34,26 @@ INCLUDE_FLAGS := \
 DEBUG_FLAGS := -g
 RELEASE_FLAGS := -DNDEBUG -O3 -fexpensive-optimizations
 
+UNAME_S := $(shell uname -s)
+
+# Platform-specific GL window/context creation.
+# - On Linux, the original project uses freeglut + libGL.
+# - On macOS, freeglut typically goes through XQuartz/GLX+Mesa, which is not
+#   reliable for OpenGL 3.3 core contexts on Apple Silicon. Use GLFW + the
+#   system OpenGL.framework instead.
+ifeq ($(UNAME_S),Darwin)
+  GPP_FLAGS += -DATMOSPHERE_USE_GLFW
+  HOMEBREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+  ifneq ($(HOMEBREW_PREFIX),)
+    INCLUDE_FLAGS += -I$(HOMEBREW_PREFIX)/include
+    GLFW_LDFLAGS := -L$(HOMEBREW_PREFIX)/lib
+  endif
+  GL_LIBS := $(GLFW_LDFLAGS) -lglfw -framework OpenGL -framework Cocoa \
+      -framework IOKit -framework CoreVideo
+else
+  GL_LIBS := -ldl -lglut -lGL
+endif
+
 DIRS := atmosphere text tools
 HEADERS := $(shell find $(DIRS) -name "*.h")
 SOURCES := $(shell find $(DIRS) -name "*.cc")
@@ -94,7 +114,7 @@ output/Release/atmosphere_integration_test: \
     output/Release/external/dimensional_types/test/test_main.o \
     output/Release/external/glad/src/glad.o \
     output/Release/external/progress_bar/util/progress_bar.o
-	$(GPP) $^ -pthread -ldl -lglut -lGL -o $@
+	$(GPP) $^ -pthread $(GL_LIBS) -o $@
 
 output/Debug/precompute: \
     output/Debug/atmosphere/demo/demo.o \
@@ -102,7 +122,7 @@ output/Debug/precompute: \
     output/Debug/atmosphere/model.o \
     output/Debug/text/text_renderer.o \
     output/Debug/external/glad/src/glad.o
-	$(GPP) $^ -pthread -ldl -lglut -lGL -o $@
+	$(GPP) $^ -pthread $(GL_LIBS) -o $@
 
 output/Debug/atmosphere_demo: \
     output/Debug/atmosphere/demo/demo.o \
@@ -110,7 +130,7 @@ output/Debug/atmosphere_demo: \
     output/Debug/atmosphere/model.o \
     output/Debug/text/text_renderer.o \
     output/Debug/external/glad/src/glad.o
-	$(GPP) $^ -pthread -ldl -lglut -lGL -o $@
+	$(GPP) $^ -pthread $(GL_LIBS) -o $@
 
 output/Debug/%.o: %.cc
 	mkdir -p $(@D)
@@ -133,6 +153,8 @@ output/Debug/atmosphere/demo/demo.o output/Release/atmosphere/demo/demo.o: \
     atmosphere/demo/demo.glsl.inc
 
 %.glsl.inc: %.glsl
-	sed -e '1i const char $(*F)_glsl[] = R"***(' -e '$$a )***";' \
-	    -e '/^\/\*/,/\*\/$$/d' -e '/^ *\/\//d' -e '/^$$/d' $< > $@
-
+	{ \
+	  printf 'const char %s_glsl[] = R"***(\n' "$(*F)"; \
+	  sed -e '/^\/\*/,/\*\/$$/d' -e '/^ *\/\//d' -e '/^$$/d' $<; \
+	  printf '\n)***";\n'; \
+	} > $@

@@ -47,6 +47,10 @@ to render the scene and the help messages:
 #include "atmosphere/model.h"
 #include "text/text_renderer.h"
 
+#if defined(ATMOSPHERE_USE_GLFW)
+struct GLFWwindow;
+#endif
+
 namespace atmosphere {
 namespace demo {
 
@@ -54,6 +58,9 @@ class Demo {
  public:
   Demo(int viewport_width, int viewport_height);
   ~Demo();
+
+  // Runs the demo event loop on platforms where we don't use GLUT.
+  void Run();
 
   const Model& model() const { return *model_; }
   const GLuint vertex_shader() const { return vertex_shader_; }
@@ -102,7 +109,12 @@ class Demo {
   GLuint full_screen_quad_vao_;
   GLuint full_screen_quad_vbo_;
   std::unique_ptr<TextRenderer> text_renderer_;
+
+#if defined(ATMOSPHERE_USE_GLFW)
+  ::GLFWwindow* window_;
+#else
   int window_id_;
+#endif
 
   double view_distance_meters_;
   double view_zenith_angle_radians_;

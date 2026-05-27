@@ -62,7 +62,13 @@ model definitions:
 #include "atmosphere/reference/model.h"
 
 #include <glad/glad.h>
+
+#if defined(ATMOSPHERE_USE_GLFW)
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#else
 #include <GL/freeglut.h>
+#endif
 
 #include <array>
 #include <fstream>
@@ -361,6 +367,33 @@ provide a separate method to initialize it:
 */
 
   void InitGpuModel(bool combine_textures, bool precomputed_luminance) {
+#if defined(ATMOSPHERE_USE_GLFW)
+    static GLFWwindow* s_window = nullptr;
+    if (!s_window) {
+      if (!glfwInit()) {
+        throw std::runtime_error("glfwInit failed");
+      }
+      glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+      glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+      glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+      glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+      glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+      s_window = glfwCreateWindow(kWidth, kHeight, "ModelTest", nullptr, nullptr);
+      if (!s_window) {
+        glfwTerminate();
+        throw std::runtime_error("glfwCreateWindow failed");
+      }
+      glfwMakeContextCurrent(s_window);
+      if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
+        throw std::runtime_error("GLAD initialization failed");
+      }
+      if (!GLAD_GL_VERSION_3_3) {
+        throw std::runtime_error("OpenGL 3.3 or higher is required");
+      }
+    } else {
+      glfwMakeContextCurrent(s_window);
+    }
+#else
     if (!glutGet(GLUT_INIT_STATE)) {
       int argc = 0;
       char** argv = nullptr;
@@ -369,15 +402,21 @@ provide a separate method to initialize it:
       glutInit(&argc, argv);
       glutInitDisplayMode(GLUT_RGBA);
       glutInitWindowSize(kWidth, kHeight);
-      glutCreateWindow("ModelTest");
+      const int window_id = glutCreateWindow("ModelTest");
       glutHideWindow();
-      if (!gladLoadGL()) {
+      if (window_id <= 0) {
+        throw std::runtime_error(
+            "glutCreateWindow failed (no window / no OpenGL context created)");
+      }
+      if (!gladLoadGLLoader(
+              reinterpret_cast<GLADloadproc>(glutGetProcAddress))) {
         throw std::runtime_error("GLAD initialization failed");
       }
       if (!GLAD_GL_VERSION_3_3) {
         throw std::runtime_error("OpenGL 3.3 or higher is required");
       }
     }
+#endif
 
     std::vector<double> wavelengths;
     const auto& spectrum = atmosphere_parameters_.solar_irradiance;

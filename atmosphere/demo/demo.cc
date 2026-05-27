@@ -40,7 +40,13 @@ independent of our atmosphere model. The only part which is related to it is the
 #include "atmosphere/demo/demo.h"
 
 #include <glad/glad.h>
+
+#if defined(ATMOSPHERE_USE_GLFW)
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#else
 #include <GL/freeglut.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -85,9 +91,20 @@ const char kVertexShader[] = R"(
 
 #include "atmosphere/demo/demo.glsl.inc"
 
+#if !defined(ATMOSPHERE_USE_GLFW)
 static std::map<int, Demo*> INSTANCES;
+#endif
 
 }  // anonymous namespace
+
+void Demo::Run() {
+#if defined(ATMOSPHERE_USE_GLFW)
+  while (window_ && !glfwWindowShouldClose(window_)) {
+    HandleRedisplayEvent();
+    glfwPollEvents();
+  }
+#endif
+}
 
 /*
 <p>The class constructor is straightforward and completely independent of our
@@ -107,16 +124,109 @@ Demo::Demo(int viewport_width, int viewport_height) :
     use_luminance_(NONE),
     do_white_balance_(false),
     show_help_(true),
+    model_(nullptr),
+    vertex_shader_(0),
+    fragment_shader_(0),
     program_(0),
-    view_distance_meters_(9000.0),
+    full_screen_quad_vao_(0),
+    full_screen_quad_vbo_(0),
+    text_renderer_(nullptr)
+#if defined(ATMOSPHERE_USE_GLFW)
+    , window_(nullptr)
+#else
+    , window_id_(0)
+#endif
+    , view_distance_meters_(9000.0),
     view_zenith_angle_radians_(1.47),
     view_azimuth_angle_radians_(-0.1),
     sun_zenith_angle_radians_(1.3),
     sun_azimuth_angle_radians_(2.9),
-    exposure_(10.0) {
+    exposure_(10.0),
+    previous_mouse_x_(0),
+    previous_mouse_y_(0),
+    is_ctrl_key_pressed_(false) {
+#if defined(ATMOSPHERE_USE_GLFW)
+  if (!glfwInit()) {
+    throw std::runtime_error("glfwInit failed");
+  }
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+
+  const bool visible = (viewport_width > 0 && viewport_height > 0);
+  glfwWindowHint(GLFW_VISIBLE, visible ? GLFW_TRUE : GLFW_FALSE);
+  const int width = visible ? viewport_width : 1;
+  const int height = visible ? viewport_height : 1;
+  window_ = glfwCreateWindow(width, height, "Atmosphere Demo", nullptr, nullptr);
+  if (!window_) {
+    glfwTerminate();
+    throw std::runtime_error("glfwCreateWindow failed");
+  }
+  glfwMakeContextCurrent(window_);
+  glfwSetWindowUserPointer(window_, this);
+
+  if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
+    throw std::runtime_error("GLAD initialization failed");
+  }
+  if (!GLAD_GL_VERSION_3_3) {
+    throw std::runtime_error("OpenGL 3.3 or higher is required");
+  }
+
+  glfwSetFramebufferSizeCallback(window_, [](GLFWwindow* w, int fb_w, int fb_h) {
+    auto* self = reinterpret_cast<Demo*>(glfwGetWindowUserPointer(w));
+    self->HandleReshapeEvent(fb_w, fb_h);
+  });
+  glfwSetKeyCallback(window_, [](GLFWwindow* w, int key, int scancode, int action,
+                                 int mods) {
+    (void)scancode;
+    (void)mods;
+    if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
+    auto* self = reinterpret_cast<Demo*>(glfwGetWindowUserPointer(w));
+    unsigned char c = 0;
+    if (key == GLFW_KEY_ESCAPE) {
+      c = 27;
+    } else if (key >= GLFW_KEY_SPACE && key <= GLFW_KEY_Z) {
+      c = static_cast<unsigned char>(key);
+      if (c >= 'A' && c <= 'Z') c = static_cast<unsigned char>(c - 'A' + 'a');
+    } else if (key == GLFW_KEY_KP_ADD) {
+      c = '+';
+    } else if (key == GLFW_KEY_KP_SUBTRACT) {
+      c = '-';
+    }
+    if (c) self->HandleKeyboardEvent(c);
+  });
+  glfwSetMouseButtonCallback(window_, [](GLFWwindow* w, int button, int action,
+                                         int mods) {
+    auto* self = reinterpret_cast<Demo*>(glfwGetWindowUserPointer(w));
+    double x = 0.0, y = 0.0;
+    glfwGetCursorPos(w, &x, &y);
+    self->is_ctrl_key_pressed_ = (mods & GLFW_MOD_CONTROL) != 0;
+    self->HandleMouseClickEvent(
+        button,
+        action == GLFW_PRESS ? 0 /* down */ : 1 /* up */,
+        static_cast<int>(x),
+        static_cast<int>(y));
+  });
+  glfwSetCursorPosCallback(window_, [](GLFWwindow* w, double x, double y) {
+    auto* self = reinterpret_cast<Demo*>(glfwGetWindowUserPointer(w));
+    self->HandleMouseDragEvent(static_cast<int>(x), static_cast<int>(y));
+  });
+  glfwSetScrollCallback(window_, [](GLFWwindow* w, double xoffset, double yoffset) {
+    (void)xoffset;
+    auto* self = reinterpret_cast<Demo*>(glfwGetWindowUserPointer(w));
+    self->HandleMouseWheelEvent(yoffset < 0.0 ? -1 : 1);
+  });
+
+#else
   glutInitWindowSize(viewport_width, viewport_height);
   window_id_ = glutCreateWindow("Atmosphere Demo");
+  if (window_id_ <= 0) {
+    throw std::runtime_error(
+        "glutCreateWindow failed (no window / no OpenGL context created)");
+  }
   INSTANCES[window_id_] = this;
+
   if (!gladLoadGL()) {
     throw std::runtime_error("GLAD initialization failed");
   }
@@ -131,6 +241,8 @@ Demo::Demo(int viewport_width, int viewport_height) :
     INSTANCES[glutGetWindow()]->HandleReshapeEvent(width, height);
   });
   glutKeyboardFunc([](unsigned char key, int x, int y) {
+    (void)x;
+    (void)y;
     INSTANCES[glutGetWindow()]->HandleKeyboardEvent(key);
   });
   glutMouseFunc([](int button, int state, int x, int y) {
@@ -140,8 +252,12 @@ Demo::Demo(int viewport_width, int viewport_height) :
     INSTANCES[glutGetWindow()]->HandleMouseDragEvent(x, y);
   });
   glutMouseWheelFunc([](int button, int dir, int x, int y) {
+    (void)button;
+    (void)x;
+    (void)y;
     INSTANCES[glutGetWindow()]->HandleMouseWheelEvent(dir);
   });
+#endif
 
   glGenVertexArrays(1, &full_screen_quad_vao_);
   glBindVertexArray(full_screen_quad_vao_);
@@ -170,12 +286,25 @@ Demo::Demo(int viewport_width, int viewport_height) :
 */
 
 Demo::~Demo() {
+#if defined(ATMOSPHERE_USE_GLFW)
+  if (window_) {
+    glfwMakeContextCurrent(window_);
+  }
+#endif
   glDeleteShader(vertex_shader_);
   glDeleteShader(fragment_shader_);
   glDeleteProgram(program_);
   glDeleteBuffers(1, &full_screen_quad_vbo_);
   glDeleteVertexArrays(1, &full_screen_quad_vao_);
+#if defined(ATMOSPHERE_USE_GLFW)
+  if (window_) {
+    glfwDestroyWindow(window_);
+    window_ = nullptr;
+  }
+  glfwTerminate();
+#else
   INSTANCES.erase(window_id_);
+#endif
 }
 
 /*
@@ -345,7 +474,13 @@ because our demo app does not have any texture of its own):
       cos(kSunAngularRadius));
 
   // This sets 'view_from_clip', which only depends on the window size.
+#if defined(ATMOSPHERE_USE_GLFW)
+  int fb_w = 0, fb_h = 0;
+  glfwGetFramebufferSize(window_, &fb_w, &fb_h);
+  HandleReshapeEvent(fb_w, fb_h);
+#else
   HandleReshapeEvent(glutGet(GLUT_WINDOW_WIDTH), glutGet(GLUT_WINDOW_HEIGHT));
+#endif
 }
 
 /*
@@ -415,8 +550,12 @@ void Demo::HandleRedisplayEvent() const {
     text_renderer_->DrawText(help.str(), 5, 4);
   }
 
+#if defined(ATMOSPHERE_USE_GLFW)
+  glfwSwapBuffers(window_);
+#else
   glutSwapBuffers();
   glutPostRedisplay();
+#endif
 }
 
 /*
@@ -445,7 +584,11 @@ void Demo::HandleReshapeEvent(int viewport_width, int viewport_height) {
 
 void Demo::HandleKeyboardEvent(unsigned char key) {
   if (key == 27) {
+#if defined(ATMOSPHERE_USE_GLFW)
+    glfwSetWindowShouldClose(window_, GLFW_TRUE);
+#else
     glutDestroyWindow(window_id_);
+#endif
   } else if (key == 'h') {
     show_help_ = !show_help_;
   } else if (key == 's') {
@@ -497,13 +640,19 @@ void Demo::HandleMouseClickEvent(
     int button, int state, int mouse_x, int mouse_y) {
   previous_mouse_x_ = mouse_x;
   previous_mouse_y_ = mouse_y;
+#if !defined(ATMOSPHERE_USE_GLFW)
   is_ctrl_key_pressed_ = (glutGetModifiers() & GLUT_ACTIVE_CTRL) != 0;
 
+  // freeglut sends mouse wheel events as button 3/4 clicks.
   if ((button == 3) || (button == 4)) {
     if (state == GLUT_DOWN) {
       HandleMouseWheelEvent(button == 3 ? 1 : -1);
     }
   }
+#else
+  (void)button;
+  (void)state;
+#endif
 }
 
 void Demo::HandleMouseDragEvent(int mouse_x, int mouse_y) {

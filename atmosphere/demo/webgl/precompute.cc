@@ -37,7 +37,13 @@ the OpenGL API, and are saved to disk:
 */
 
 #include <glad/glad.h>
+
+#if defined(ATMOSPHERE_USE_GLFW)
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#else
 #include <GL/freeglut.h>
+#endif
 
 #include <memory>
 #include <fstream>
@@ -73,10 +79,12 @@ void SaveTexture(const GLenum texture_unit, const GLenum texture_target,
 }
 
 int main(int argc, char** argv) {
+#if !defined(ATMOSPHERE_USE_GLFW)
   glutInitContextVersion(3, 3);
   glutInitContextProfile(GLUT_CORE_PROFILE);
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
+#endif
 
   std::unique_ptr<Demo> demo(new Demo(0, 0));
   demo->model().SetProgramUniforms(demo->program(), 0, 1, 2);

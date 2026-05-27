@@ -36,13 +36,26 @@ application.
 #include "atmosphere/demo/demo.h"
 
 #include <glad/glad.h>
+
+#if defined(ATMOSPHERE_USE_GLFW)
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#else
 #include <GL/freeglut.h>
+#endif
 
 #include <memory>
 
 using atmosphere::demo::Demo;
 
 int main(int argc, char** argv) {
+  (void)argc;
+  (void)argv;
+#if defined(ATMOSPHERE_USE_GLFW)
+  std::unique_ptr<Demo> demo(new Demo(1024, 576));
+  demo->Run();
+  return 0;
+#else
   glutInitContextVersion(3, 3);
   glutInitContextProfile(GLUT_CORE_PROFILE);
   glutInit(&argc, argv);
@@ -52,4 +65,5 @@ int main(int argc, char** argv) {
   std::unique_ptr<Demo> demo(new Demo(1024, 576));
   glutMainLoop();
   return 0;
+#endif
 }
