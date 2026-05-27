@@ -743,6 +743,60 @@ Model::Model(
       functions_glsl;
   };
 
+  // Print the atmosphere parameters exactly as they are specialized in
+  // `glsl_header_factory_` (in particular: values are expressed in
+  // `length_unit_in_meters` units, and spectra are sampled at RGB lambdas).
+  const vec3 print_lambdas{kLambdaR, kLambdaG, kLambdaB};
+
+  std::cout << "----------------------" << std::endl;
+  std::cout << "AtmosphereParameters" << std::endl;
+  std::cout << "Lambdas (nm): vec3(" << std::to_string(print_lambdas[0]) << ","
+            << std::to_string(print_lambdas[1]) << ","
+            << std::to_string(print_lambdas[2]) << ")" << std::endl;
+  std::cout << "Solar Irradiance: "
+            << to_string(solar_irradiance, print_lambdas, 1.0) << std::endl;
+  std::cout << "Sun Angular Radius: " << std::to_string(sun_angular_radius)
+            << std::endl;
+  std::cout << "Bottom Radius: "
+            << std::to_string(bottom_radius / length_unit_in_meters)
+            << std::endl;
+  std::cout << "Top Radius: "
+            << std::to_string(top_radius / length_unit_in_meters) << std::endl;
+  std::cout << "Rayleigh Density: " << density_profile(rayleigh_density)
+            << std::endl;
+  std::cout << "Rayleigh Scattering: "
+            << to_string(rayleigh_scattering, print_lambdas,
+                length_unit_in_meters)
+            << std::endl;
+  std::cout << "Mie Density: " << density_profile(mie_density) << std::endl;
+  std::cout << "Mie Scattering: "
+            << to_string(mie_scattering, print_lambdas, length_unit_in_meters)
+            << std::endl;
+  std::cout << "Mie Extinction: "
+            << to_string(mie_extinction, print_lambdas, length_unit_in_meters)
+            << std::endl;
+  std::cout << "Mie Phase Function g: "
+            << std::to_string(mie_phase_function_g) << std::endl;
+  std::cout << "Absorption Density: " << density_profile(absorption_density)
+            << std::endl;
+  std::cout << "Absorption Extinction: "
+            << to_string(absorption_extinction, print_lambdas,
+                length_unit_in_meters)
+            << std::endl;
+  std::cout << "Ground Albedo: "
+            << to_string(ground_albedo, print_lambdas, 1.0) << std::endl;
+  std::cout << "Mu S Min (cos(max_sun_zenith_angle)): "
+            << std::to_string(cos(max_sun_zenith_angle)) << std::endl;
+  std::cout << "SKY_SPECTRAL_RADIANCE_TO_LUMINANCE: vec3(" 
+            << std::to_string(sky_k_r) << "," << std::to_string(sky_k_g)
+            << "," << std::to_string(sky_k_b) << ")" << std::endl;
+  std::cout << "SUN_SPECTRAL_RADIANCE_TO_LUMINANCE: vec3(" 
+            << std::to_string(sun_k_r) << "," << std::to_string(sun_k_g)
+            << "," << std::to_string(sun_k_b) << ")" << std::endl;
+  std::cout << "Precompute illuminance: "
+            << (precompute_illuminance ? "true" : "false") << std::endl;
+  std::cout << "----------------------" << std::endl;
+
   // Allocate the precomputed textures, but don't precompute them yet.
   transmittance_texture_ = NewTexture2d(
       TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT);
